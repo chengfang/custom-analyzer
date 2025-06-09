@@ -7,7 +7,7 @@ import (
     "net/http"
 
     rpc "buf.build/gen/go/k8sgpt-ai/k8sgpt/grpc/go/schema/v1/schemav1grpc"
-    "github.com/k8sgpt-ai/go-custom-analyzer/pkg/analyzer"
+    "github.com/chengfang/custom-analyzer/pkg/analyzer"
     "google.golang.org/grpc"
     "google.golang.org/grpc/reflection"
 )
