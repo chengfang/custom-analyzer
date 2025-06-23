@@ -13,15 +13,17 @@ import (
 )
 
 func main() {
-    fmt.Println("Starting!")
     var err error
     address := fmt.Sprintf(":%s", "8085")
+    fmt.Printf("starting %s at %s\n", analyzer.ANALYZER_NAME, address)
+
     lis, err := net.Listen("tcp", address)
     if err != nil {
         panic(err)
     }
     grpcServer := grpc.NewServer()
     reflection.Register(grpcServer)
+
     aa := analyzer.Analyzer{}
     rpc.RegisterCustomAnalyzerServiceServer(grpcServer, aa.Handler)
     if err := grpcServer.Serve(
