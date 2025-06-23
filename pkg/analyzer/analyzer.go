@@ -8,23 +8,6 @@ import (
 )
 
 const ANALYZER_NAME = "image-updater-analyzer"
-var VALID_SHORT_ANN_KEYS = []string{
-	"helm.image-name",
-	"helm.image-tag",
-	"helm.image-spec",
-	"kustomize.image-name",
-	"allow-tags",
-	"ignore-tags",
-	"force-update",
-	"update-strategy",
-	"pull-secret",
-	"platforms",
-	"image-list",
-	"write-back-method",
-	"git-branch",
-	"git-repository",
-	"write-back-target",
-}
 
 type Handler struct {
 	rpc.CustomAnalyzerServiceServer

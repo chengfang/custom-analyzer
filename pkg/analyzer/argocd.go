@@ -13,6 +13,24 @@ import (
 	"strings"
 )
 
+var ValidShortAnnKeys = []string{
+	"allow-tags",
+	"force-update",
+	"git-branch",
+	"git-repository",
+	"helm.image-name",
+	"helm.image-spec",
+	"helm.image-tag",
+	"ignore-tags",
+	"image-list",
+	"kustomize.image-name",
+	"platforms",
+	"pull-secret",
+	"update-strategy",
+	"write-back-method",
+	"write-back-target",
+}
+
 // GetApplications gets all argocd applications that use argocd-image-updater.
 // If an application contains the annotation argocd-image-updater.argoproj.io/image-list,
 // it is considered using argocd-image-updater.
@@ -107,10 +125,10 @@ func verifyApplication(app *v1alpha1.Application) *appResult {
 			if found {
 				shortKey = after
 			}
-			if slices.Contains(VALID_SHORT_ANN_KEYS, shortKey) {
+			if slices.Contains(ValidShortAnnKeys, shortKey) {
 				fmt.Printf("Verified annotation: %s: %s\n", k, v)
 			} else {
-				fmt.Printf("Found unrecognized annotation: %s: %s\n", k, v)
+				fmt.Printf("Unrecognized annotation: %s: %s\n", k, v)
 				badAnnotations = append(badAnnotations, fmt.Sprintf("%s: %s", k, v))
 			}
 		} else {
@@ -118,7 +136,8 @@ func verifyApplication(app *v1alpha1.Application) *appResult {
 		}
 	}
 	if len(badAnnotations) > 0 {
-		ar.message = fmt.Sprintf("Invalid annotations: %s", strings.Join(badAnnotations, ","))
+		ar.message = fmt.Sprintf("Unrecognized annotations: %s\n. Valid annotations are: %s",
+			strings.Join(badAnnotations, ","), strings.Join(ValidShortAnnKeys, ","))
 		ar.err = errors.New(ar.message)
 		return ar
 	}
