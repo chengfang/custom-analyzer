@@ -3,15 +3,17 @@ package analyzer
 import (
 	"fmt"
 	"k8s.io/utils/strings/slices"
-	"os"
+	//"os"
 	"context"
 	"errors"
-	argocdclient "github.com/argoproj/argo-cd/v2/pkg/apiclient"
-	"github.com/argoproj/argo-cd/v2/pkg/apiclient/application"
-	"github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	updaterCommon "github.com/argoproj-labs/argocd-image-updater/pkg/common"
+	updaterKube "github.com/argoproj-labs/argocd-image-updater/pkg/kube"
+	"github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"strings"
 )
+
+const KUBE_ANNOTATION_PREFIX = "kubectl.kubernetes.io/"
 
 var ValidShortAnnKeys = []string{
 	"allow-tags",
@@ -39,54 +41,24 @@ var ValidShortAnnKeys = []string{
 // notFoundMessage is returned to reflect that.
 // An error is returned for any errors getting argocd applications from the cluster
 func GetApplications (ctx context.Context) (apps []v1alpha1.Application, err error, notFoundMessage string)  {
+	kubeConfigPath := ""
 	labelSelector := ""
-	envAuthToken := os.Getenv("ARGOCD_TOKEN")
-	if envAuthToken == "" {
-		err = errors.New("ARGOCD_TOKEN environment variable not set")
-		return nil, err, ""
-	}
+	argocdNamespace := "argocd"
+	appListOpts := v1.ListOptions{LabelSelector: labelSelector}
 
-	envServer := os.Getenv("ARGOCD_SERVER")
-	if envServer == "" {
-		err = errors.New("ARGOCD_SERVER environment variable not set")
-		return nil, err, ""
-	}
-
-	rOpts := &argocdclient.ClientOptions{
-		ServerAddr:      envServer,
-		PlainText:       true,
-		Insecure:        true,
-		AuthToken:		 envAuthToken,
-	}
-
-	client, err := argocdclient.NewClient(rOpts)
+	fmt.Printf("Creating Kubernetes client with kubeConfigPath: %s and argocdNamespace: %s\n", kubeConfigPath, argocdNamespace)
+	kubernetesClient, err := updaterKube.NewKubernetesClient(ctx, kubeConfigPath, argocdNamespace)
 	if err != nil {
-		return nil, err, ""
+		return nil, err, notFoundMessage
 	}
 
-	conn, appClient, err := client.NewApplicationClient()
+	fmt.Printf("Getting application list\n")
+	appList, err := kubernetesClient.ApplicationsClientset.ArgoprojV1alpha1().Applications(argocdNamespace).List(context.TODO(), appListOpts)
 	if err != nil {
-		return nil, err, ""
-	}
-	defer conn.Close()
-
-	applicationQuery := &application.ApplicationQuery{
-		Name:            nil,
-		Refresh:         nil,
-		Projects:        nil,
-		ResourceVersion: nil,
-		Selector:        &labelSelector,
-		Repo:            nil,
-		AppNamespace:    nil,
-		Project:         nil,
-	}
-	appList, err := appClient.List(context.TODO(), applicationQuery)
-	if err != nil {
-		return nil, err, ""
+		return nil, err, notFoundMessage
 	}
 
 	apps = appList.Items
-
 	if len(apps) == 0 {
 		return nil, nil, "No argocd applications are found"
 	}
@@ -96,27 +68,33 @@ func GetApplications (ctx context.Context) (apps []v1alpha1.Application, err err
 func verifyApplications(apps []v1alpha1.Application) []*appResult {
 	appResults := []*appResult{}
 	for _, app := range apps {
-		result := verifyApplication(&app)
-		appResults = append(appResults, result)
+		appResults = verifyApplication(&app, appResults)
 	}
 	return appResults
 }
 
-func verifyApplication(app *v1alpha1.Application) *appResult {
+func verifyApplication(app *v1alpha1.Application, appResults []*appResult) []*appResult {
+	fmt.Printf("\nVerifying application %s\n-------------------------\n", app.Name)
 	annotations := app.GetAnnotations()
-	ar := &appResult{
-		namespace: app.Namespace,
-		name:      app.Name,
-	}
 
 	if annotations == nil || len(annotations) == 0 {
-		ar.message = "No annotations found"
-		return ar
+		ar := &appResult{
+			namespace: app.Namespace,
+			name:      app.Name,
+			message:   "No annotations found",
+			ok:        false,
+		}
+		appResults = append(appResults, ar)
+		return appResults
 	}
 
 	// check for any unrecognized annotation keys
 	badAnnotations := []string{}
 	for k, v := range annotations {
+		if strings.HasPrefix(k, KUBE_ANNOTATION_PREFIX) {
+			// ignore any system level annotation
+			continue
+		}
 		prefix := updaterCommon.ImageUpdaterAnnotationPrefix + "/"
 		if strings.HasPrefix(k, prefix) {
 			trimPrefix := strings.TrimPrefix(k, prefix)
@@ -126,9 +104,9 @@ func verifyApplication(app *v1alpha1.Application) *appResult {
 				shortKey = after
 			}
 			if slices.Contains(ValidShortAnnKeys, shortKey) {
-				fmt.Printf("Verified annotation: %s: %s\n", k, v)
+				fmt.Printf("\u2713 Verified annotation: %s: %s\n", k, v)
 			} else {
-				fmt.Printf("Unrecognized annotation: %s: %s\n", k, v)
+				fmt.Printf("\u2717 Unrecognized annotation: %s: %s\n", k, v)
 				badAnnotations = append(badAnnotations, fmt.Sprintf("%s: %s", k, v))
 			}
 		} else {
@@ -136,25 +114,31 @@ func verifyApplication(app *v1alpha1.Application) *appResult {
 		}
 	}
 	if len(badAnnotations) > 0 {
-		ar.message = fmt.Sprintf("Unrecognized annotations: %s\n. Valid annotations are: %s",
-			strings.Join(badAnnotations, ","), strings.Join(ValidShortAnnKeys, ","))
+		ar := &appResult{
+			namespace: app.Namespace,
+			name:      app.Name,
+			ok:        false,
+		}
+		ar.message = fmt.Sprintf("Unrecognized annotations: %s in application %s/%s\n. Valid annotations are: %s",
+			strings.Join(badAnnotations, ", "), app.Namespace, app.Name, strings.Join(ValidShortAnnKeys, ", "))
 		ar.err = errors.New(ar.message)
-		return ar
+		appResults = append(appResults, ar)
 	}
 
 	// check for image-list annotation
 	annVal := annotations[updaterCommon.ImageUpdaterAnnotation]
 	if annVal == "" {
-		ar.ok = false
-		suggestion := fmt.Sprintf("Add annotation %s to the application %s",
-			updaterCommon.ImageUpdaterAnnotation, app.Name)
-		ar.message = fmt.Sprintf("The required %s annotation not found.\nSuggestion:%s ",
-			updaterCommon.ImageUpdaterAnnotation, suggestion)
-		return ar
+		ar := &appResult{
+			namespace: app.Namespace,
+			name:      app.Name,
+			ok:        false,
+		}
+		msg := fmt.Sprintf("The required annotation not found.\nSuggestion:\n Add annotation %s to the application %s/%s",
+			updaterCommon.ImageUpdaterAnnotation, app.Namespace, app.Name)
+		fmt.Printf("\u2717 %s\n",msg)
+		ar.message = msg
+		ar.err = errors.New(msg)
+		appResults = append(appResults, ar)
 	}
-
-
-	annVal = annotations[updaterCommon.ImageUpdaterAnnotation]
-
-	return ar
+	return appResults
 }

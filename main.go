@@ -15,7 +15,7 @@ import (
 func main() {
     var err error
     address := fmt.Sprintf(":%s", "8085")
-    fmt.Printf("starting %s at %s\n", analyzer.ANALYZER_NAME, address)
+    fmt.Printf("Starting %s at %s\n", analyzer.ANALYZER_NAME, address)
 
     lis, err := net.Listen("tcp", address)
     if err != nil {

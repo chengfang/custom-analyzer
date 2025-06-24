@@ -41,10 +41,11 @@ func (a *Handler) Run(ctx context.Context, req *v1.RunRequest) (*v1.RunResponse,
 
 	appResults := verifyApplications(apps)
 	if len(appResults) == 0 {
+		fmt.Println("Empty result from analyzing applications")
 		response := &v1.RunResponse{
 			Result: &v1.Result{
 				Name:    ANALYZER_NAME,
-				Details: "empty result from analyzing applications",
+				Details: "Empty result from analyzing applications",
 			},
 		}
 		return response, nil
@@ -69,5 +70,7 @@ func (a *Handler) Run(ctx context.Context, req *v1.RunRequest) (*v1.RunResponse,
 			Error:   errorDetails,
 		},
 	}
+	fmt.Printf("\n=========================\nConsolidated results: %s\n", responseMessage)
+
 	return response, nil
 }
