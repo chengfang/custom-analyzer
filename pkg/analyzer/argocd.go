@@ -88,6 +88,8 @@ func verifyApplication(app *v1alpha1.Application, appResults []*appResult) []*ap
 		return appResults
 	}
 
+	var hasImageUpdaterAnnotation bool
+
 	// check for any unrecognized annotation keys
 	badAnnotations := []string{}
 	for k, v := range annotations {
@@ -97,6 +99,7 @@ func verifyApplication(app *v1alpha1.Application, appResults []*appResult) []*ap
 		}
 		prefix := updaterCommon.ImageUpdaterAnnotationPrefix + "/"
 		if strings.HasPrefix(k, prefix) {
+			hasImageUpdaterAnnotation = true
 			trimPrefix := strings.TrimPrefix(k, prefix)
 			before, after, found := strings.Cut(trimPrefix, ".")
 			shortKey := before
@@ -125,20 +128,23 @@ func verifyApplication(app *v1alpha1.Application, appResults []*appResult) []*ap
 		appResults = append(appResults, ar)
 	}
 
-	// check for image-list annotation
-	annVal := annotations[updaterCommon.ImageUpdaterAnnotation]
-	if annVal == "" {
-		ar := &appResult{
-			namespace: app.Namespace,
-			name:      app.Name,
-			ok:        false,
+	// check for the mandatory image-list annotation
+	if hasImageUpdaterAnnotation {
+		annVal := annotations[updaterCommon.ImageUpdaterAnnotation]
+		if annVal == "" {
+			ar := &appResult{
+				namespace: app.Namespace,
+				name:      app.Name,
+				ok:        false,
+			}
+			msg := fmt.Sprintf("The required annotation not found.\nSuggestion:\n Add annotation %s to the application %s/%s",
+				updaterCommon.ImageUpdaterAnnotation, app.Namespace, app.Name)
+			fmt.Printf("\u2717 %s\n", msg)
+			ar.message = msg
+			ar.err = errors.New(msg)
+			appResults = append(appResults, ar)
 		}
-		msg := fmt.Sprintf("The required annotation not found.\nSuggestion:\n Add annotation %s to the application %s/%s",
-			updaterCommon.ImageUpdaterAnnotation, app.Namespace, app.Name)
-		fmt.Printf("\u2717 %s\n",msg)
-		ar.message = msg
-		ar.err = errors.New(msg)
-		appResults = append(appResults, ar)
+		return appResults
 	}
 	return appResults
 }
